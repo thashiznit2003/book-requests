@@ -72,6 +72,57 @@ const createClient = (instance: InstanceConfig): AxiosInstance =>
     timeout: 15000
   });
 
+const pickLookupKey = (book: ReadarrLookupBook): string => {
+  const key = pickKey(book);
+  if (key) {
+    return key;
+  }
+  const title = normalize(book.title);
+  const author = normalize(pickAuthor(book));
+  const isbn = normalize(pickIsbn13(book));
+  return `t:${title}|a:${author}|i:${isbn}`;
+};
+
+const lookupBooks = async (
+  client: AxiosInstance,
+  term: string,
+  limit: number
+): Promise<LookupResult[]> => {
+  const results: LookupResult[] = [];
+  const seen = new Set<string>();
+  const maxPages = Math.max(1, Math.ceil(limit / 5));
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const response = await client.get<LookupResult[]>("/api/v1/book/lookup", {
+      params: { term, limit, pageSize: limit, page }
+    });
+    const data = response.data || [];
+    if (!data.length) {
+      break;
+    }
+
+    let addedThisPage = 0;
+    for (const item of data) {
+      const key = pickLookupKey(item);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      results.push(item);
+      addedThisPage += 1;
+      if (results.length >= limit) {
+        return results;
+      }
+    }
+
+    if (addedThisPage === 0) {
+      break;
+    }
+  }
+
+  return results;
+};
+
 const hasFile = (book: ReadarrBook): boolean => {
   if (book.bookFileId) {
     return true;
@@ -161,19 +212,15 @@ export const searchBooks = async (
 
   const [ebookLookup, audioLookup, ebookExisting, audioExisting] =
     await Promise.all([
-      ebooksClient.get<LookupResult[]>("/api/v1/book/lookup", {
-        params: { term, limit: lookupLimit, pageSize: lookupLimit }
-      }),
-      audioClient.get<LookupResult[]>("/api/v1/book/lookup", {
-        params: { term, limit: lookupLimit, pageSize: lookupLimit }
-      }),
+      lookupBooks(ebooksClient, term, lookupLimit),
+      lookupBooks(audioClient, term, lookupLimit),
       ebooksClient.get<ReadarrBook[]>("/api/v1/book"),
       audioClient.get<ReadarrBook[]>("/api/v1/book")
     ]);
 
   const items = new Map<string, SearchItem>();
-  ingest(items, ebookLookup.data || [], mapExisting(ebookExisting.data || []), "ebook");
-  ingest(items, audioLookup.data || [], mapExisting(audioExisting.data || []), "audio");
+  ingest(items, ebookLookup || [], mapExisting(ebookExisting.data || []), "ebook");
+  ingest(items, audioLookup || [], mapExisting(audioExisting.data || []), "audio");
 
   return Array.from(items.values()).sort((a, b) =>
     a.title.localeCompare(b.title)
@@ -188,6 +235,33 @@ export const requestBook = async (
   const client = createClient(instance);
 
   if (existingId) {
+    let monitorSucceeded = false;
+    let searchSucceeded = false;
+
+    try {
+      await client.post("/api/v1/book/monitor", {
+        bookIds: [existingId],
+        monitored: true
+      });
+      monitorSucceeded = true;
+    } catch (error) {
+      logger.warn({ err: error }, "book_monitor_failed");
+    }
+
+    try {
+      await client.post("/api/v1/command", {
+        name: "BookSearch",
+        bookIds: [existingId]
+      });
+      searchSucceeded = true;
+    } catch (error) {
+      logger.warn({ err: error }, "book_search_failed");
+    }
+
+    if (monitorSucceeded || searchSucceeded) {
+      return;
+    }
+
     const existing = await client.get<ReadarrBook>(`/api/v1/book/${existingId}`);
     const payload = {
       ...existing.data,
@@ -197,14 +271,6 @@ export const requestBook = async (
     } as Record<string, unknown>;
 
     await client.put("/api/v1/book", payload);
-    try {
-      await client.post("/api/v1/command", {
-        name: "BookSearch",
-        bookIds: [existingId]
-      });
-    } catch (error) {
-      logger.warn({ err: error }, "book_search_failed");
-    }
     return;
   }
 

@@ -31,7 +31,6 @@ type InstanceSettingsForm = {
   baseUrl: string;
   apiKey: string;
   rootFolderPath: string;
-  qualityProfileId: string;
 };
 
 type SettingsForm = {
@@ -58,6 +57,8 @@ type TestResult = {
   message?: string;
 };
 
+type ThemeMode = "light" | "dark";
+
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 const AUTH_TOKEN = import.meta.env.VITE_AUTH || "";
 
@@ -70,14 +71,12 @@ const defaultForm: SettingsForm = {
   ebooks: {
     baseUrl: "",
     apiKey: "",
-    rootFolderPath: "/books/ebooks",
-    qualityProfileId: "1"
+    rootFolderPath: "/books/ebooks"
   },
   audio: {
     baseUrl: "",
     apiKey: "",
-    rootFolderPath: "/books/audiobooks",
-    qualityProfileId: "1"
+    rootFolderPath: "/books/audiobooks"
   }
 };
 
@@ -90,14 +89,12 @@ const toSettingsForm = (settings?: SettingsResponse["settings"]): SettingsForm =
     ebooks: {
       baseUrl: settings.ebooks.baseUrl || "",
       apiKey: settings.ebooks.apiKey || "",
-      rootFolderPath: settings.ebooks.rootFolderPath || "/books/ebooks",
-      qualityProfileId: String(settings.ebooks.qualityProfileId ?? "")
+      rootFolderPath: settings.ebooks.rootFolderPath || "/books/ebooks"
     },
     audio: {
       baseUrl: settings.audio.baseUrl || "",
       apiKey: settings.audio.apiKey || "",
-      rootFolderPath: settings.audio.rootFolderPath || "/books/audiobooks",
-      qualityProfileId: String(settings.audio.qualityProfileId ?? "")
+      rootFolderPath: settings.audio.rootFolderPath || "/books/audiobooks"
     }
   };
 };
@@ -111,6 +108,29 @@ const normalizeAuthHeader = (token: string): string => {
     return trimmed;
   }
   return `Bearer ${trimmed}`;
+};
+
+const toTitleCase = (value: string): string =>
+  value
+    .split(" ")
+    .map((word) => {
+      if (!word) {
+        return "";
+      }
+      const [first, ...rest] = word;
+      return `${first.toUpperCase()}${rest.join("").toLowerCase()}`;
+    })
+    .join(" ");
+
+const formatAuthorName = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "Unknown author";
+  }
+  if (trimmed === trimmed.toLowerCase()) {
+    return toTitleCase(trimmed);
+  }
+  return trimmed;
 };
 
 const buildRequestKey = (key: string, instance: "ebook" | "audio"): RequestKey =>
@@ -135,6 +155,7 @@ const App = () => {
     ebooks: { state: "idle" },
     audio: { state: "idle" }
   });
+  const [theme, setTheme] = useState<ThemeMode>("light");
 
   const canSearch = term.trim().length > 2 && configured;
   const hasResults = results.length > 0;
@@ -167,6 +188,31 @@ const App = () => {
       window.localStorage.setItem("bookRequestsAuth", authToken);
     }
   }, [authToken]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const storedTheme = window.localStorage.getItem("bookRequestsTheme");
+    if (storedTheme === "dark" || storedTheme === "light") {
+      setTheme(storedTheme);
+      return;
+    }
+    const prefersDark =
+      window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches;
+    setTheme(prefersDark ? "dark" : "light");
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    document.body.dataset.theme = theme;
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("bookRequestsTheme", theme);
+    }
+  }, [theme]);
 
   const loadSettings = useCallback(async () => {
     setSettingsLoading(true);
@@ -319,14 +365,12 @@ const App = () => {
     ebooks: {
       baseUrl: settings.ebooks.baseUrl.trim(),
       apiKey: settings.ebooks.apiKey.trim(),
-      rootFolderPath: settings.ebooks.rootFolderPath.trim(),
-      qualityProfileId: Number(settings.ebooks.qualityProfileId)
+      rootFolderPath: settings.ebooks.rootFolderPath.trim()
     },
     audio: {
       baseUrl: settings.audio.baseUrl.trim(),
       apiKey: settings.audio.apiKey.trim(),
-      rootFolderPath: settings.audio.rootFolderPath.trim(),
-      qualityProfileId: Number(settings.audio.qualityProfileId)
+      rootFolderPath: settings.audio.rootFolderPath.trim()
     }
   });
 
@@ -411,15 +455,24 @@ const App = () => {
         <div className="hero__copy">
           <div className="hero__top">
             <p className="eyebrow">Readarr Request Hub</p>
-            {configured && (
+            <div className="hero__actions">
               <button
                 type="button"
                 className="button button--ghost"
-                onClick={() => setShowSettings((prev) => !prev)}
+                onClick={() => setTheme((prev) => (prev === "dark" ? "light" : "dark"))}
               >
-                {showSettings ? "Close settings" : "Settings"}
+                {theme === "dark" ? "Light mode" : "Dark mode"}
               </button>
-            )}
+              {configured && (
+                <button
+                  type="button"
+                  className="button button--ghost"
+                  onClick={() => setShowSettings((prev) => !prev)}
+                >
+                  {showSettings ? "Close settings" : "Settings"}
+                </button>
+              )}
+            </div>
           </div>
           <h1>Request new books in seconds.</h1>
           <p className="lede">
@@ -530,21 +583,6 @@ const App = () => {
                       }
                     />
                   </div>
-                  <div className="field">
-                    <label>Quality profile ID</label>
-                    <input
-                      type="number"
-                      placeholder="1"
-                      value={instanceSettings.qualityProfileId}
-                      onChange={(event) =>
-                        updateInstanceField(
-                          instance,
-                          "qualityProfileId",
-                          event.target.value
-                        )
-                      }
-                    />
-                  </div>
 
                   <div className="settings__panel-actions">
                     <button
@@ -615,6 +653,7 @@ const App = () => {
             const isRequestingBoth =
               ebookState === "loading" || audioState === "loading";
             const canRequestBoth = (canRequestEbook || canRequestAudio) && !isRequestingBoth;
+            const authorLabel = formatAuthorName(item.author);
 
             return (
               <article
@@ -624,7 +663,7 @@ const App = () => {
               >
                 <div className="card__meta">
                   <h3>{item.title}</h3>
-                  <p>{item.author}</p>
+                  <p>{authorLabel}</p>
                   <div className="card__ids">
                     {item.isbn13 && <span>ISBN {item.isbn13}</span>}
                     {item.goodreadsId && <span>GR {item.goodreadsId}</span>}

@@ -45,6 +45,8 @@ VITE_AUTH=your_shared_password
 
 You can also enter the shared password in the UI (it is stored in browser local storage).
 
+Quality profile IDs are not exposed in the UI; set them in `.env` only if you need to override the defaults.
+
 Optional frontend API base override (useful for Docker dev):
 
 ```
@@ -90,6 +92,14 @@ docker compose -f docker-compose.yml up -d
 ```
 
 Then visit `http://localhost:3000`.
+
+## Example compose with bind mounts
+
+If you prefer host bind mounts (instead of a named volume), use `docker-compose.example.yml`:
+
+```
+docker compose -f docker-compose.example.yml up -d --build
+```
 
 ## Portainer-friendly compose
 

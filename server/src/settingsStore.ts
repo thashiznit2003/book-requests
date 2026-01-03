@@ -9,9 +9,21 @@ export type InstanceSettings = {
   qualityProfileId: number;
 };
 
+export type InstanceSettingsInput = {
+  baseUrl?: string;
+  apiKey?: string;
+  rootFolderPath?: string;
+  qualityProfileId?: number;
+};
+
 export type Settings = {
   ebooks: InstanceSettings;
   audio: InstanceSettings;
+};
+
+export type SettingsInput = {
+  ebooks: InstanceSettingsInput;
+  audio: InstanceSettingsInput;
 };
 
 export type SettingsState = {
@@ -103,18 +115,28 @@ const validateInstance = (instance: InstanceSettings, label: string): void => {
   }
 };
 
-const normalizeSettings = (settings: Settings): Settings => ({
+const defaultQualityProfileId = (envVar: string, fallback: number): number => {
+  return toNumber(process.env[envVar], fallback);
+};
+
+const normalizeSettings = (settings: SettingsInput): Settings => ({
   ebooks: {
-    baseUrl: normalizeBaseUrl(settings.ebooks.baseUrl),
-    apiKey: settings.ebooks.apiKey.trim(),
-    rootFolderPath: settings.ebooks.rootFolderPath.trim(),
-    qualityProfileId: Number(settings.ebooks.qualityProfileId)
+    baseUrl: normalizeBaseUrl(settings.ebooks.baseUrl || ""),
+    apiKey: (settings.ebooks.apiKey || "").trim(),
+    rootFolderPath: (settings.ebooks.rootFolderPath || "").trim(),
+    qualityProfileId: Number(
+      settings.ebooks.qualityProfileId ??
+        defaultQualityProfileId("EBOOKS_QUALITY_PROFILE_ID", 1)
+    )
   },
   audio: {
-    baseUrl: normalizeBaseUrl(settings.audio.baseUrl),
-    apiKey: settings.audio.apiKey.trim(),
-    rootFolderPath: settings.audio.rootFolderPath.trim(),
-    qualityProfileId: Number(settings.audio.qualityProfileId)
+    baseUrl: normalizeBaseUrl(settings.audio.baseUrl || ""),
+    apiKey: (settings.audio.apiKey || "").trim(),
+    rootFolderPath: (settings.audio.rootFolderPath || "").trim(),
+    qualityProfileId: Number(
+      settings.audio.qualityProfileId ??
+        defaultQualityProfileId("AUDIO_QUALITY_PROFILE_ID", 1)
+    )
   }
 });
 
@@ -138,7 +160,7 @@ export const getSettings = (): SettingsState => {
   return { configured: false };
 };
 
-export const saveSettings = async (settings: Settings): Promise<void> => {
+export const saveSettings = async (settings: SettingsInput): Promise<void> => {
   const normalized = normalizeSettings(settings);
   validateInstance(normalized.ebooks, "Ebooks");
   validateInstance(normalized.audio, "Audiobooks");
