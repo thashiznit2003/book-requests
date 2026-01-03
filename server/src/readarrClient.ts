@@ -37,6 +37,8 @@ type Defaults = {
 type AuthorLookup = {
   name?: string;
   authorName?: string;
+  foreignAuthorId?: string | number;
+  authorId?: number;
   books?: ReadarrLookupBook[];
 };
 
@@ -205,6 +207,33 @@ const collectAuthorBooks = (authors: AuthorLookup[]): LookupResult[] => {
         enriched.authorName = name;
       }
       results.push(enriched);
+    }
+  }
+  return results;
+};
+
+const expandAuthorBooks = async (
+  client: AxiosInstance,
+  authors: AuthorLookup[],
+  limit: number
+): Promise<LookupResult[]> => {
+  const results: LookupResult[] = [];
+  for (const author of authors) {
+    const candidates = [
+      author.foreignAuthorId ? `author:${author.foreignAuthorId}` : "",
+      author.authorId ? `author:${author.authorId}` : "",
+      author.authorName ? `author:${author.authorName}` : "",
+      author.name ? `author:${author.name}` : ""
+    ]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+
+    for (const candidate of candidates) {
+      const lookup = await lookupBooks(client, candidate, limit);
+      results.push(...lookup);
+      if (results.length >= limit) {
+        return results;
+      }
     }
   }
   return results;
@@ -415,7 +444,7 @@ export const searchBooks = async (
   const lookupLimit =
     Number.isFinite(lookupLimitRaw) && lookupLimitRaw >= 20
       ? lookupLimitRaw
-      : 20;
+      : 50;
 
   const [ebookLookup, audioLookup, ebookAuthorLookup, audioAuthorLookup, ebookExisting, audioExisting] =
     await Promise.all([
@@ -441,11 +470,19 @@ export const searchBooks = async (
   ];
 
   if (ebookBooks.length < lookupLimit) {
-    const more = await lookupBooks(ebooksClient, `author:${term}`, lookupLimit);
+    const more = await expandAuthorBooks(
+      ebooksClient,
+      ebookAuthorLookup || [],
+      lookupLimit
+    );
     ebookBooks.push(...more);
   }
   if (audioBooks.length < lookupLimit) {
-    const more = await lookupBooks(audioClient, `author:${term}`, lookupLimit);
+    const more = await expandAuthorBooks(
+      audioClient,
+      audioAuthorLookup || [],
+      lookupLimit
+    );
     audioBooks.push(...more);
   }
 
@@ -529,20 +566,31 @@ export const requestBook = async (
       ? { rootFolderPath, qualityProfileId: Number(qualityProfileId) }
       : await resolveDefaults(instance);
 
+  const addWithLookup = async (book: ReadarrLookupBook) => {
+    const payload = {
+      ...book,
+      rootFolderPath: defaults.rootFolderPath,
+      qualityProfileId: defaults.qualityProfileId,
+      monitored: true,
+      addOptions: {
+        searchForNewBook: true
+      }
+    } as Record<string, unknown>;
+
+    delete payload.id;
+
+    await client.post("/api/v1/book", payload);
+  };
+
+  try {
+    await addWithLookup(lookup);
+    return;
+  } catch (error) {
+    logger.warn({ err: error }, "book_add_failed");
+  }
+
   const resolvedLookup = await resolveLookupForAdd(instance, lookup);
-  const payload = {
-    ...resolvedLookup,
-    rootFolderPath: defaults.rootFolderPath,
-    qualityProfileId: defaults.qualityProfileId,
-    monitored: true,
-    addOptions: {
-      searchForNewBook: true
-    }
-  } as Record<string, unknown>;
-
-  delete payload.id;
-
-  await client.post("/api/v1/book", payload);
+  await addWithLookup(resolvedLookup);
 };
 
 export const testConnection = async (
