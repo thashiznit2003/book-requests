@@ -643,7 +643,7 @@ const App = () => {
               >
                 <div className="card__meta">
                   <h3>{item.title}</h3>
-                  <p>{authorLabel}</p>
+                  <p className="card__author">{authorLabel}</p>
                   <div className="card__ids">
                     {item.isbn13 && <span>ISBN {item.isbn13}</span>}
                     {item.goodreadsId && <span>GR {item.goodreadsId}</span>}

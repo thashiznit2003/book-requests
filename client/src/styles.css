@@ -352,6 +352,10 @@ p {
   font-size: 0.95rem;
 }
 
+.card__author {
+  text-transform: capitalize;
+}
+
 .card__ids {
   display: flex;
   gap: 0.6rem;
@@ -393,7 +397,7 @@ p {
 }
 
 body[data-theme="dark"] .action--ghost {
-  border-color: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.35);
   color: var(--ink);
 }
 

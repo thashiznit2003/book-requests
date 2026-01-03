@@ -34,6 +34,12 @@ type Defaults = {
   qualityProfileId: number;
 };
 
+type AuthorLookup = {
+  name?: string;
+  authorName?: string;
+  books?: ReadarrLookupBook[];
+};
+
 const defaultsCache = new Map<string, { value: Defaults; timestamp: number }>();
 
 const normalize = (value: string | number | undefined): string =>
@@ -159,6 +165,71 @@ const lookupBooks = async (
   }
 
   return results;
+};
+
+const lookupAuthors = async (
+  client: AxiosInstance,
+  term: string,
+  limit: number
+): Promise<AuthorLookup[]> => {
+  try {
+    const response = await client.get<AuthorLookup[]>("/api/v1/author/lookup", {
+      params: { term, limit, pageSize: limit }
+    });
+    return response.data || [];
+  } catch (error) {
+    logger.debug({ err: error }, "author_lookup_failed");
+    return [];
+  }
+};
+
+const collectAuthorBooks = (authors: AuthorLookup[]): LookupResult[] => {
+  const results: LookupResult[] = [];
+  for (const author of authors) {
+    const name = author.authorName || author.name;
+    const books = author.books || [];
+    for (const book of books) {
+      const enriched = { ...book } as LookupResult;
+      if (
+        name &&
+        !enriched.authorName &&
+        !enriched.authorTitle &&
+        !enriched.author?.name
+      ) {
+        enriched.authorName = name;
+      }
+      results.push(enriched);
+    }
+  }
+  return results;
+};
+
+const resolveLookupForAdd = async (
+  instance: InstanceConfig,
+  lookup: ReadarrLookupBook
+): Promise<ReadarrLookupBook> => {
+  const client = createClient(instance);
+  const candidates = [
+    lookup.foreignBookId,
+    lookup.isbn13,
+    lookup.isbn,
+    lookup.goodreadsId,
+    lookup.asin,
+    `${lookup.title || ""} ${lookup.authorTitle || lookup.authorName || ""}`.trim()
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  for (const candidate of candidates) {
+    const results = await lookupBooks(client, candidate, 10);
+    const match =
+      results.find((item) => pickKey(item) === pickKey(lookup)) || results[0];
+    if (match) {
+      return match;
+    }
+  }
+
+  return lookup;
 };
 
 const resolveDefaults = async (instance: InstanceConfig): Promise<Defaults> => {
@@ -336,10 +407,12 @@ export const searchBooks = async (
       ? lookupLimitRaw
       : 20;
 
-  const [ebookLookup, audioLookup, ebookExisting, audioExisting] =
+  const [ebookLookup, audioLookup, ebookAuthorLookup, audioAuthorLookup, ebookExisting, audioExisting] =
     await Promise.all([
       lookupBooks(ebooksClient, term, lookupLimit),
       lookupBooks(audioClient, term, lookupLimit),
+      lookupAuthors(ebooksClient, term, lookupLimit),
+      lookupAuthors(audioClient, term, lookupLimit),
       ebooksClient.get<ReadarrBook[]>("/api/v1/book"),
       audioClient.get<ReadarrBook[]>("/api/v1/book")
     ]);
@@ -348,8 +421,17 @@ export const searchBooks = async (
   const ebookMap = mapExisting(ebookExisting.data || []);
   const audioMap = mapExisting(audioExisting.data || []);
 
-  ingest(items, ebookLookup || [], ebookMap, "ebook");
-  ingest(items, audioLookup || [], audioMap, "audio");
+  const ebookBooks = [
+    ...(ebookLookup || []),
+    ...collectAuthorBooks(ebookAuthorLookup || [])
+  ];
+  const audioBooks = [
+    ...(audioLookup || []),
+    ...collectAuthorBooks(audioAuthorLookup || [])
+  ];
+
+  ingest(items, ebookBooks, ebookMap, "ebook");
+  ingest(items, audioBooks, audioMap, "audio");
   addExistingMatches(
     items,
     ebookExisting.data || [],
@@ -428,8 +510,9 @@ export const requestBook = async (
       ? { rootFolderPath, qualityProfileId: Number(qualityProfileId) }
       : await resolveDefaults(instance);
 
+  const resolvedLookup = await resolveLookupForAdd(instance, lookup);
   const payload = {
-    ...lookup,
+    ...resolvedLookup,
     rootFolderPath: defaults.rootFolderPath,
     qualityProfileId: defaults.qualityProfileId,
     monitored: true,
