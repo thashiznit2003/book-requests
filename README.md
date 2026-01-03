@@ -25,10 +25,11 @@ READARR_EBOOKS_APIKEY=your_ebooks_key
 READARR_AUDIO_URL=http://readarr-audio:8787
 READARR_AUDIO_APIKEY=your_audio_key
 
-EBOOKS_ROOT_FOLDER=/books/ebooks
-EBOOKS_QUALITY_PROFILE_ID=1
-AUDIO_ROOT_FOLDER=/books/audiobooks
-AUDIO_QUALITY_PROFILE_ID=1
+# Optional overrides (uses Readarr defaults if omitted)
+EBOOKS_ROOT_FOLDER=
+EBOOKS_QUALITY_PROFILE_ID=
+AUDIO_ROOT_FOLDER=
+AUDIO_QUALITY_PROFILE_ID=
 
 # Optional: increase lookup results returned by Readarr
 READARR_LOOKUP_LIMIT=20
@@ -45,7 +46,7 @@ VITE_AUTH=your_shared_password
 
 You can also enter the shared password in the UI (it is stored in browser local storage).
 
-Quality profile IDs are not exposed in the UI; set them in `.env` only if you need to override the defaults.
+Root folder and quality profile overrides are not exposed in the UI; set them in `.env` only if you need to override Readarr defaults.
 
 Optional frontend API base override (useful for Docker dev):
 

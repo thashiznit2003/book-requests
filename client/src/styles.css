@@ -392,6 +392,11 @@ p {
   color: var(--ink);
 }
 
+body[data-theme="dark"] .action--ghost {
+  border-color: rgba(255, 255, 255, 0.25);
+  color: var(--ink);
+}
+
 .action:disabled {
   opacity: 0.6;
   cursor: not-allowed;

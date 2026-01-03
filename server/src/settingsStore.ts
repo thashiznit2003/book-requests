@@ -5,8 +5,8 @@ import { logger } from "./logger.js";
 export type InstanceSettings = {
   baseUrl: string;
   apiKey: string;
-  rootFolderPath: string;
-  qualityProfileId: number;
+  rootFolderPath?: string;
+  qualityProfileId?: number;
 };
 
 export type InstanceSettingsInput = {
@@ -73,14 +73,18 @@ const buildFromEnv = (): Settings | null => {
     ebooks: {
       baseUrl: normalizeBaseUrl(ebooksUrl),
       apiKey: ebooksKey,
-      rootFolderPath: readOptional(process.env.EBOOKS_ROOT_FOLDER) || "/books",
-      qualityProfileId: toNumber(process.env.EBOOKS_QUALITY_PROFILE_ID, 1)
+      rootFolderPath: readOptional(process.env.EBOOKS_ROOT_FOLDER) || undefined,
+      qualityProfileId: readOptional(process.env.EBOOKS_QUALITY_PROFILE_ID)
+        ? toNumber(process.env.EBOOKS_QUALITY_PROFILE_ID, 1)
+        : undefined
     },
     audio: {
       baseUrl: normalizeBaseUrl(audioUrl),
       apiKey: audioKey,
-      rootFolderPath: readOptional(process.env.AUDIO_ROOT_FOLDER) || "/books",
-      qualityProfileId: toNumber(process.env.AUDIO_QUALITY_PROFILE_ID, 1)
+      rootFolderPath: readOptional(process.env.AUDIO_ROOT_FOLDER) || undefined,
+      qualityProfileId: readOptional(process.env.AUDIO_QUALITY_PROFILE_ID)
+        ? toNumber(process.env.AUDIO_QUALITY_PROFILE_ID, 1)
+        : undefined
     }
   };
 };
@@ -107,36 +111,24 @@ const validateInstance = (instance: InstanceSettings, label: string): void => {
   if (!instance.apiKey?.trim()) {
     throw new SettingsError(`${label} API key is required.`);
   }
-  if (!instance.rootFolderPath?.trim()) {
-    throw new SettingsError(`${label} root folder path is required.`);
-  }
-  if (!Number.isFinite(instance.qualityProfileId) || instance.qualityProfileId <= 0) {
-    throw new SettingsError(`${label} quality profile ID is required.`);
-  }
-};
-
-const defaultQualityProfileId = (envVar: string, fallback: number): number => {
-  return toNumber(process.env[envVar], fallback);
 };
 
 const normalizeSettings = (settings: SettingsInput): Settings => ({
   ebooks: {
     baseUrl: normalizeBaseUrl(settings.ebooks.baseUrl || ""),
     apiKey: (settings.ebooks.apiKey || "").trim(),
-    rootFolderPath: (settings.ebooks.rootFolderPath || "").trim(),
-    qualityProfileId: Number(
-      settings.ebooks.qualityProfileId ??
-        defaultQualityProfileId("EBOOKS_QUALITY_PROFILE_ID", 1)
-    )
+    rootFolderPath: settings.ebooks.rootFolderPath?.trim() || undefined,
+    qualityProfileId: Number.isFinite(Number(settings.ebooks.qualityProfileId))
+      ? Number(settings.ebooks.qualityProfileId)
+      : undefined
   },
   audio: {
     baseUrl: normalizeBaseUrl(settings.audio.baseUrl || ""),
     apiKey: (settings.audio.apiKey || "").trim(),
-    rootFolderPath: (settings.audio.rootFolderPath || "").trim(),
-    qualityProfileId: Number(
-      settings.audio.qualityProfileId ??
-        defaultQualityProfileId("AUDIO_QUALITY_PROFILE_ID", 1)
-    )
+    rootFolderPath: settings.audio.rootFolderPath?.trim() || undefined,
+    qualityProfileId: Number.isFinite(Number(settings.audio.qualityProfileId))
+      ? Number(settings.audio.qualityProfileId)
+      : undefined
   }
 });
 

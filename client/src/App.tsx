@@ -23,14 +23,11 @@ type SearchItem = {
 type InstanceSettings = {
   baseUrl: string;
   apiKey: string;
-  rootFolderPath: string;
-  qualityProfileId: number;
 };
 
 type InstanceSettingsForm = {
   baseUrl: string;
   apiKey: string;
-  rootFolderPath: string;
 };
 
 type SettingsForm = {
@@ -70,13 +67,11 @@ const instanceLabels = {
 const defaultForm: SettingsForm = {
   ebooks: {
     baseUrl: "",
-    apiKey: "",
-    rootFolderPath: "/books/ebooks"
+    apiKey: ""
   },
   audio: {
     baseUrl: "",
-    apiKey: "",
-    rootFolderPath: "/books/audiobooks"
+    apiKey: ""
   }
 };
 
@@ -88,13 +83,11 @@ const toSettingsForm = (settings?: SettingsResponse["settings"]): SettingsForm =
   return {
     ebooks: {
       baseUrl: settings.ebooks.baseUrl || "",
-      apiKey: settings.ebooks.apiKey || "",
-      rootFolderPath: settings.ebooks.rootFolderPath || "/books/ebooks"
+      apiKey: settings.ebooks.apiKey || ""
     },
     audio: {
       baseUrl: settings.audio.baseUrl || "",
-      apiKey: settings.audio.apiKey || "",
-      rootFolderPath: settings.audio.rootFolderPath || "/books/audiobooks"
+      apiKey: settings.audio.apiKey || ""
     }
   };
 };
@@ -300,7 +293,7 @@ const App = () => {
     const lookup = instance === "ebook" ? item.ebook.lookup : item.audio.lookup;
     const existingId =
       instance === "ebook" ? item.ebook.existingId : item.audio.existingId;
-    if (!lookup) {
+    if (!lookup && !existingId) {
       return;
     }
 
@@ -364,13 +357,11 @@ const App = () => {
   const buildSettingsPayload = () => ({
     ebooks: {
       baseUrl: settings.ebooks.baseUrl.trim(),
-      apiKey: settings.ebooks.apiKey.trim(),
-      rootFolderPath: settings.ebooks.rootFolderPath.trim()
+      apiKey: settings.ebooks.apiKey.trim()
     },
     audio: {
       baseUrl: settings.audio.baseUrl.trim(),
-      apiKey: settings.audio.apiKey.trim(),
-      rootFolderPath: settings.audio.rootFolderPath.trim()
+      apiKey: settings.audio.apiKey.trim()
     }
   });
 
@@ -508,7 +499,7 @@ const App = () => {
           <div className="settings__header">
             <div>
               <h2>{setupTitle}</h2>
-              <p>Provide Readarr URLs, API keys, and defaults.</p>
+              <p>Provide Readarr URLs and API keys. Defaults come from Readarr.</p>
             </div>
           </div>
 
@@ -565,21 +556,6 @@ const App = () => {
                       value={instanceSettings.apiKey}
                       onChange={(event) =>
                         updateInstanceField(instance, "apiKey", event.target.value)
-                      }
-                    />
-                  </div>
-                  <div className="field">
-                    <label>Root folder path</label>
-                    <input
-                      type="text"
-                      placeholder="/books/ebooks"
-                      value={instanceSettings.rootFolderPath}
-                      onChange={(event) =>
-                        updateInstanceField(
-                          instance,
-                          "rootFolderPath",
-                          event.target.value
-                        )
                       }
                     />
                   </div>
@@ -647,9 +623,13 @@ const App = () => {
             const ebookState = requestState[ebookKey] || "idle";
             const audioState = requestState[audioKey] || "idle";
             const canRequestEbook =
-              item.ebook.available && !item.ebook.alreadyAdded && !!item.ebook.lookup;
+              item.ebook.available &&
+              !item.ebook.alreadyAdded &&
+              (!!item.ebook.lookup || !!item.ebook.existingId);
             const canRequestAudio =
-              item.audio.available && !item.audio.alreadyAdded && !!item.audio.lookup;
+              item.audio.available &&
+              !item.audio.alreadyAdded &&
+              (!!item.audio.lookup || !!item.audio.existingId);
             const isRequestingBoth =
               ebookState === "loading" || audioState === "loading";
             const canRequestBoth = (canRequestEbook || canRequestAudio) && !isRequestingBoth;

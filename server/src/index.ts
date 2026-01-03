@@ -122,9 +122,7 @@ app.post("/api/settings/test", async (req, res, next) => {
   try {
     await testConnection({
       baseUrl: String(settings.baseUrl),
-      apiKey: String(settings.apiKey),
-      rootFolderPath: String(settings.rootFolderPath || "/books"),
-      qualityProfileId: Number(settings.qualityProfileId || 1)
+      apiKey: String(settings.apiKey)
     });
     return res.json({ status: "ok" });
   } catch (error) {
@@ -163,7 +161,7 @@ app.get("/api/search", async (req, res, next) => {
 app.post("/api/request/ebook", async (req, res, next) => {
   const book = req.body?.book;
   const existingId = Number(req.body?.existingId);
-  if (!book) {
+  if (!book && !(Number.isFinite(existingId) && existingId > 0)) {
     return res.status(400).json({ error: "Missing book payload." });
   }
 
@@ -187,7 +185,7 @@ app.post("/api/request/ebook", async (req, res, next) => {
 app.post("/api/request/audiobook", async (req, res, next) => {
   const book = req.body?.book;
   const existingId = Number(req.body?.existingId);
-  if (!book) {
+  if (!book && !(Number.isFinite(existingId) && existingId > 0)) {
     return res.status(400).json({ error: "Missing book payload." });
   }
 

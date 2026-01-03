@@ -15,6 +15,27 @@ type ExistingInfo = {
   hasFile: boolean;
 };
 
+type RootFolder = {
+  id?: number;
+  path?: string;
+  isDefault?: boolean;
+  default?: boolean;
+};
+
+type QualityProfile = {
+  id?: number;
+  name?: string;
+  isDefault?: boolean;
+  default?: boolean;
+};
+
+type Defaults = {
+  rootFolderPath: string;
+  qualityProfileId: number;
+};
+
+const defaultsCache = new Map<string, { value: Defaults; timestamp: number }>();
+
 const normalize = (value: string | number | undefined): string =>
   String(value ?? "").trim().toLowerCase();
 
@@ -61,6 +82,23 @@ const pickGoodreadsId = (
     return undefined;
   }
   return String(book.goodreadsId);
+};
+
+const matchesTerm = (term: string, book: ReadarrBook): boolean => {
+  const normalized = normalize(term);
+  if (!normalized) {
+    return false;
+  }
+  const title = normalize(pickTitle(book));
+  const author = normalize(pickAuthor(book));
+  const isbn = normalize(pickIsbn13(book));
+  const goodreads = normalize(book.goodreadsId);
+  return (
+    title.includes(normalized) ||
+    author.includes(normalized) ||
+    isbn.includes(normalized) ||
+    goodreads.includes(normalized)
+  );
 };
 
 const createClient = (instance: InstanceConfig): AxiosInstance =>
@@ -121,6 +159,39 @@ const lookupBooks = async (
   }
 
   return results;
+};
+
+const resolveDefaults = async (instance: InstanceConfig): Promise<Defaults> => {
+  const cacheKey = instance.baseUrl;
+  const cached = defaultsCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < 10 * 60 * 1000) {
+    return cached.value;
+  }
+
+  const client = createClient(instance);
+  const [rootResponse, profileResponse] = await Promise.all([
+    client.get<RootFolder[]>("/api/v1/rootfolder"),
+    client.get<QualityProfile[]>("/api/v1/qualityprofile")
+  ]);
+
+  const rootFolders = rootResponse.data || [];
+  const profiles = profileResponse.data || [];
+  const root =
+    rootFolders.find((folder) => folder.isDefault || folder.default) ||
+    rootFolders[0];
+  const profile =
+    profiles.find((entry) => entry.isDefault || entry.default) || profiles[0];
+
+  if (!root?.path) {
+    throw new Error("Readarr does not have a default root folder configured.");
+  }
+  if (!profile?.id) {
+    throw new Error("Readarr does not have a default quality profile configured.");
+  }
+
+  const value = { rootFolderPath: root.path, qualityProfileId: profile.id };
+  defaultsCache.set(cacheKey, { value, timestamp: Date.now() });
+  return value;
 };
 
 const hasFile = (book: ReadarrBook): boolean => {
@@ -199,6 +270,59 @@ const ingest = (
   }
 };
 
+const addExistingMatches = (
+  items: Map<string, SearchItem>,
+  books: ReadarrBook[],
+  existingMap: Map<string, ExistingInfo>,
+  instance: "ebook" | "audio",
+  term: string
+): void => {
+  for (const book of books) {
+    if (!matchesTerm(term, book)) {
+      continue;
+    }
+    const key = pickKey(book);
+    if (!key || items.has(key)) {
+      continue;
+    }
+    const existing = existingMap.get(key);
+    if (!existing) {
+      continue;
+    }
+    const alreadyAdded = Boolean(existing.monitored && existing.hasFile);
+    const entry: SearchItem = {
+      key,
+      title: pickTitle(book),
+      author: pickAuthor(book),
+      isbn13: pickIsbn13(book),
+      foreignBookId: book.foreignBookId,
+      goodreadsId: pickGoodreadsId(book),
+      ebook: { available: false, alreadyAdded: false },
+      audio: { available: false, alreadyAdded: false }
+    };
+
+    if (instance === "ebook") {
+      entry.ebook = {
+        available: true,
+        alreadyAdded,
+        existingId: existing.id,
+        monitored: existing.monitored,
+        hasFile: existing.hasFile
+      };
+    } else {
+      entry.audio = {
+        available: true,
+        alreadyAdded,
+        existingId: existing.id,
+        monitored: existing.monitored,
+        hasFile: existing.hasFile
+      };
+    }
+
+    items.set(key, entry);
+  }
+};
+
 export const searchBooks = async (
   ebooks: InstanceConfig,
   audio: InstanceConfig,
@@ -208,7 +332,9 @@ export const searchBooks = async (
   const audioClient = createClient(audio);
   const lookupLimitRaw = Number(process.env.READARR_LOOKUP_LIMIT);
   const lookupLimit =
-    Number.isFinite(lookupLimitRaw) && lookupLimitRaw > 0 ? lookupLimitRaw : 20;
+    Number.isFinite(lookupLimitRaw) && lookupLimitRaw >= 20
+      ? lookupLimitRaw
+      : 20;
 
   const [ebookLookup, audioLookup, ebookExisting, audioExisting] =
     await Promise.all([
@@ -219,8 +345,25 @@ export const searchBooks = async (
     ]);
 
   const items = new Map<string, SearchItem>();
-  ingest(items, ebookLookup || [], mapExisting(ebookExisting.data || []), "ebook");
-  ingest(items, audioLookup || [], mapExisting(audioExisting.data || []), "audio");
+  const ebookMap = mapExisting(ebookExisting.data || []);
+  const audioMap = mapExisting(audioExisting.data || []);
+
+  ingest(items, ebookLookup || [], ebookMap, "ebook");
+  ingest(items, audioLookup || [], audioMap, "audio");
+  addExistingMatches(
+    items,
+    ebookExisting.data || [],
+    ebookMap,
+    "ebook",
+    term
+  );
+  addExistingMatches(
+    items,
+    audioExisting.data || [],
+    audioMap,
+    "audio",
+    term
+  );
 
   return Array.from(items.values()).sort((a, b) =>
     a.title.localeCompare(b.title)
@@ -229,7 +372,7 @@ export const searchBooks = async (
 
 export const requestBook = async (
   instance: InstanceConfig,
-  lookup: ReadarrLookupBook,
+  lookup: ReadarrLookupBook | undefined,
   existingId?: number
 ): Promise<void> => {
   const client = createClient(instance);
@@ -274,10 +417,21 @@ export const requestBook = async (
     return;
   }
 
+  if (!lookup) {
+    throw new Error("Missing lookup data to add new book.");
+  }
+
+  const rootFolderPath = instance.rootFolderPath?.trim();
+  const qualityProfileId = instance.qualityProfileId;
+  const defaults =
+    rootFolderPath && Number.isFinite(qualityProfileId)
+      ? { rootFolderPath, qualityProfileId: Number(qualityProfileId) }
+      : await resolveDefaults(instance);
+
   const payload = {
     ...lookup,
-    rootFolderPath: instance.rootFolderPath,
-    qualityProfileId: instance.qualityProfileId,
+    rootFolderPath: defaults.rootFolderPath,
+    qualityProfileId: defaults.qualityProfileId,
     monitored: true,
     addOptions: {
       searchForNewBook: true
