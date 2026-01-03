@@ -352,9 +352,6 @@ p {
   font-size: 0.95rem;
 }
 
-.card__author {
-  text-transform: capitalize;
-}
 
 .card__ids {
   display: flex;

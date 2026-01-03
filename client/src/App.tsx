@@ -115,15 +115,33 @@ const toTitleCase = (value: string): string =>
     })
     .join(" ");
 
-const formatAuthorName = (value: string): string => {
-  const trimmed = value.trim();
-  if (!trimmed) {
+const normalizeAuthorDisplay = (author: string, title: string): string => {
+  let label = author.trim();
+  if (!label) {
     return "Unknown author";
   }
-  if (trimmed === trimmed.toLowerCase()) {
-    return toTitleCase(trimmed);
+
+  const titleLower = title.trim().toLowerCase();
+  if (titleLower) {
+    const lowerLabel = label.toLowerCase();
+    if (lowerLabel.includes(titleLower)) {
+      const cleaned = lowerLabel.replace(titleLower, "");
+      label = cleaned.replace(/[,\-–—]+$/g, "").trim();
+    }
   }
-  return trimmed;
+
+  if (label.includes(",")) {
+    const parts = label.split(",").map((part) => part.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      label = `${parts.slice(1).join(" ")} ${parts[0]}`.trim();
+    }
+  }
+
+  if (label === label.toLowerCase()) {
+    label = toTitleCase(label);
+  }
+
+  return label;
 };
 
 const buildRequestKey = (key: string, instance: "ebook" | "audio"): RequestKey =>
@@ -633,7 +651,7 @@ const App = () => {
             const isRequestingBoth =
               ebookState === "loading" || audioState === "loading";
             const canRequestBoth = (canRequestEbook || canRequestAudio) && !isRequestingBoth;
-            const authorLabel = formatAuthorName(item.author);
+            const authorLabel = normalizeAuthorDisplay(item.author, item.title);
 
             return (
               <article
@@ -666,9 +684,6 @@ const App = () => {
                   >
                     {isRequestingBoth ? "Requesting..." : "Request Both"}
                   </button>
-                  {!canRequestBoth && !isRequestingBoth && (
-                    <span className="status">Nothing to request</span>
-                  )}
                 </div>
 
                 <div className="card__actions">
