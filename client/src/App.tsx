@@ -4,6 +4,9 @@ type InstanceStatus = {
   available: boolean;
   alreadyAdded: boolean;
   lookup?: Record<string, unknown>;
+  existingId?: number;
+  monitored?: boolean;
+  hasFile?: boolean;
 };
 
 type SearchItem = {
@@ -249,6 +252,8 @@ const App = () => {
 
   const requestBook = async (item: SearchItem, instance: "ebook" | "audio") => {
     const lookup = instance === "ebook" ? item.ebook.lookup : item.audio.lookup;
+    const existingId =
+      instance === "ebook" ? item.ebook.existingId : item.audio.existingId;
     if (!lookup) {
       return;
     }
@@ -266,7 +271,7 @@ const App = () => {
             "Content-Type": "application/json",
             ...authHeaders
           },
-          body: JSON.stringify({ book: lookup })
+          body: JSON.stringify({ book: lookup, existingId })
         }
       );
 
@@ -603,6 +608,13 @@ const App = () => {
             const audioKey = buildRequestKey(item.key, "audio");
             const ebookState = requestState[ebookKey] || "idle";
             const audioState = requestState[audioKey] || "idle";
+            const canRequestEbook =
+              item.ebook.available && !item.ebook.alreadyAdded && !!item.ebook.lookup;
+            const canRequestAudio =
+              item.audio.available && !item.audio.alreadyAdded && !!item.audio.lookup;
+            const isRequestingBoth =
+              ebookState === "loading" || audioState === "loading";
+            const canRequestBoth = (canRequestEbook || canRequestAudio) && !isRequestingBoth;
 
             return (
               <article
@@ -622,11 +634,30 @@ const App = () => {
                 <div className="card__actions">
                   <button
                     type="button"
+                    className="action action--accent"
+                    disabled={!canRequestBoth}
+                    onClick={() => {
+                      if (canRequestEbook) {
+                        void requestBook(item, "ebook");
+                      }
+                      if (canRequestAudio) {
+                        void requestBook(item, "audio");
+                      }
+                    }}
+                  >
+                    {isRequestingBoth ? "Requesting..." : "Request Both"}
+                  </button>
+                  {!canRequestBoth && !isRequestingBoth && (
+                    <span className="status">Nothing to request</span>
+                  )}
+                </div>
+
+                <div className="card__actions">
+                  <button
+                    type="button"
                     className="action action--primary"
                     disabled={
-                      !item.ebook.available ||
-                      item.ebook.alreadyAdded ||
-                      ebookState === "loading"
+                      !canRequestEbook || ebookState === "loading"
                     }
                     onClick={() => requestBook(item, "ebook")}
                   >
@@ -649,9 +680,7 @@ const App = () => {
                     type="button"
                     className="action action--ghost"
                     disabled={
-                      !item.audio.available ||
-                      item.audio.alreadyAdded ||
-                      audioState === "loading"
+                      !canRequestAudio || audioState === "loading"
                     }
                     onClick={() => requestBook(item, "audio")}
                   >

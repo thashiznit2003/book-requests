@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import axios from "axios";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
-import { addBook, searchBooks, testConnection } from "./readarrClient.js";
+import { requestBook, searchBooks, testConnection } from "./readarrClient.js";
 import { SettingsError, getSettings, saveSettings } from "./settingsStore.js";
 
 const app = express();
@@ -162,6 +162,7 @@ app.get("/api/search", async (req, res, next) => {
 
 app.post("/api/request/ebook", async (req, res, next) => {
   const book = req.body?.book;
+  const existingId = Number(req.body?.existingId);
   if (!book) {
     return res.status(400).json({ error: "Missing book payload." });
   }
@@ -172,7 +173,11 @@ app.post("/api/request/ebook", async (req, res, next) => {
   }
 
   try {
-    await addBook(settings.ebooks, book);
+    await requestBook(
+      settings.ebooks,
+      book,
+      Number.isFinite(existingId) && existingId > 0 ? existingId : undefined
+    );
     return res.json({ status: "ok" });
   } catch (error) {
     return next(error);
@@ -181,6 +186,7 @@ app.post("/api/request/ebook", async (req, res, next) => {
 
 app.post("/api/request/audiobook", async (req, res, next) => {
   const book = req.body?.book;
+  const existingId = Number(req.body?.existingId);
   if (!book) {
     return res.status(400).json({ error: "Missing book payload." });
   }
@@ -191,7 +197,11 @@ app.post("/api/request/audiobook", async (req, res, next) => {
   }
 
   try {
-    await addBook(settings.audio, book);
+    await requestBook(
+      settings.audio,
+      book,
+      Number.isFinite(existingId) && existingId > 0 ? existingId : undefined
+    );
     return res.json({ status: "ok" });
   } catch (error) {
     return next(error);

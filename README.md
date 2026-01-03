@@ -30,6 +30,9 @@ EBOOKS_QUALITY_PROFILE_ID=1
 AUDIO_ROOT_FOLDER=/books/audiobooks
 AUDIO_QUALITY_PROFILE_ID=1
 
+# Optional: increase lookup results returned by Readarr
+READARR_LOOKUP_LIMIT=20
+
 # Optional shared password for API requests
 AUTH=
 ```
@@ -110,4 +113,5 @@ docker compose -f docker-compose.portainer.yml up -d
 ## Notes
 
 - Search results are merged from both instances and de-duped before display.
-- If a book already exists in an instance, the request button is disabled.
+- If a book already exists and is monitored with a file, the request button is disabled.
+- Books that exist but are unmonitored or missing files can be re-requested (the app re-enables those buttons).

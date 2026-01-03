@@ -1,11 +1,18 @@
 import axios, { AxiosInstance } from "axios";
 import type { ReadarrBook, ReadarrLookupBook, SearchItem } from "./types.js";
+import { logger } from "./logger.js";
 import type { InstanceSettings } from "./settingsStore.js";
 
 export type InstanceConfig = InstanceSettings;
 
 type LookupResult = ReadarrLookupBook & {
   title?: string;
+};
+
+type ExistingInfo = {
+  id: number;
+  monitored: boolean;
+  hasFile: boolean;
 };
 
 const normalize = (value: string | number | undefined): string =>
@@ -65,12 +72,29 @@ const createClient = (instance: InstanceConfig): AxiosInstance =>
     timeout: 15000
   });
 
-const mapExisting = (books: ReadarrBook[]): Set<string> => {
-  const keys = new Set<string>();
+const hasFile = (book: ReadarrBook): boolean => {
+  if (book.bookFileId) {
+    return true;
+  }
+  if (book.bookFile?.id) {
+    return true;
+  }
+  if ((book.statistics?.bookFileCount ?? 0) > 0) {
+    return true;
+  }
+  return (book.statistics?.sizeOnDisk ?? 0) > 0;
+};
+
+const mapExisting = (books: ReadarrBook[]): Map<string, ExistingInfo> => {
+  const keys = new Map<string, ExistingInfo>();
   for (const book of books) {
     const key = pickKey(book);
-    if (key) {
-      keys.add(key);
+    if (key && book.id != null) {
+      keys.set(key, {
+        id: book.id,
+        monitored: book.monitored ?? true,
+        hasFile: hasFile(book)
+      });
     }
   }
   return keys;
@@ -79,7 +103,7 @@ const mapExisting = (books: ReadarrBook[]): Set<string> => {
 const ingest = (
   items: Map<string, SearchItem>,
   lookup: LookupResult[],
-  existingKeys: Set<string>,
+  existingMap: Map<string, ExistingInfo>,
   instance: "ebook" | "audio"
 ): void => {
   for (const book of lookup) {
@@ -87,6 +111,8 @@ const ingest = (
     if (!key) {
       continue;
     }
+    const existing = existingMap.get(key);
+    const alreadyAdded = Boolean(existing && existing.monitored && existing.hasFile);
     const current = items.get(key) || {
       key,
       title: pickTitle(book),
@@ -101,13 +127,19 @@ const ingest = (
     if (instance === "ebook") {
       current.ebook = {
         available: true,
-        alreadyAdded: existingKeys.has(key),
+        alreadyAdded,
+        existingId: existing?.id,
+        monitored: existing?.monitored,
+        hasFile: existing?.hasFile,
         lookup: book
       };
     } else {
       current.audio = {
         available: true,
-        alreadyAdded: existingKeys.has(key),
+        alreadyAdded,
+        existingId: existing?.id,
+        monitored: existing?.monitored,
+        hasFile: existing?.hasFile,
         lookup: book
       };
     }
@@ -123,14 +155,17 @@ export const searchBooks = async (
 ): Promise<SearchItem[]> => {
   const ebooksClient = createClient(ebooks);
   const audioClient = createClient(audio);
+  const lookupLimitRaw = Number(process.env.READARR_LOOKUP_LIMIT);
+  const lookupLimit =
+    Number.isFinite(lookupLimitRaw) && lookupLimitRaw > 0 ? lookupLimitRaw : 20;
 
   const [ebookLookup, audioLookup, ebookExisting, audioExisting] =
     await Promise.all([
       ebooksClient.get<LookupResult[]>("/api/v1/book/lookup", {
-        params: { term }
+        params: { term, limit: lookupLimit, pageSize: lookupLimit }
       }),
       audioClient.get<LookupResult[]>("/api/v1/book/lookup", {
-        params: { term }
+        params: { term, limit: lookupLimit, pageSize: lookupLimit }
       }),
       ebooksClient.get<ReadarrBook[]>("/api/v1/book"),
       audioClient.get<ReadarrBook[]>("/api/v1/book")
@@ -145,11 +180,34 @@ export const searchBooks = async (
   );
 };
 
-export const addBook = async (
+export const requestBook = async (
   instance: InstanceConfig,
-  lookup: ReadarrLookupBook
+  lookup: ReadarrLookupBook,
+  existingId?: number
 ): Promise<void> => {
   const client = createClient(instance);
+
+  if (existingId) {
+    const existing = await client.get<ReadarrBook>(`/api/v1/book/${existingId}`);
+    const payload = {
+      ...existing.data,
+      monitored: true,
+      rootFolderPath: instance.rootFolderPath,
+      qualityProfileId: instance.qualityProfileId
+    } as Record<string, unknown>;
+
+    await client.put("/api/v1/book", payload);
+    try {
+      await client.post("/api/v1/command", {
+        name: "BookSearch",
+        bookIds: [existingId]
+      });
+    } catch (error) {
+      logger.warn({ err: error }, "book_search_failed");
+    }
+    return;
+  }
+
   const payload = {
     ...lookup,
     rootFolderPath: instance.rootFolderPath,

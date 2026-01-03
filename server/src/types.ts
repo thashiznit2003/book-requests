@@ -14,6 +14,7 @@ export type ReadarrLookupBook = {
 };
 
 export type ReadarrBook = {
+  id?: number;
   title?: string;
   authorTitle?: string;
   authorName?: string;
@@ -24,6 +25,15 @@ export type ReadarrBook = {
   asin?: string;
   author?: {
     name?: string;
+  };
+  monitored?: boolean;
+  bookFileId?: number;
+  bookFile?: {
+    id?: number;
+  };
+  statistics?: {
+    bookFileCount?: number;
+    sizeOnDisk?: number;
   };
 };
 
@@ -37,11 +47,17 @@ export type SearchItem = {
   ebook: {
     available: boolean;
     alreadyAdded: boolean;
+    existingId?: number;
+    monitored?: boolean;
+    hasFile?: boolean;
     lookup?: ReadarrLookupBook;
   };
   audio: {
     available: boolean;
     alreadyAdded: boolean;
+    existingId?: number;
+    monitored?: boolean;
+    hasFile?: boolean;
     lookup?: ReadarrLookupBook;
   };
 };
