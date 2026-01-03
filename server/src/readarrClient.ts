@@ -250,7 +250,7 @@ const resolveLookupForAdd = async (
     lookup.isbn,
     lookup.goodreadsId,
     lookup.asin,
-    `${lookup.title || ""} ${lookup.authorTitle || lookup.authorName || ""}`.trim()
+    lookup.title
   ]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
@@ -470,19 +470,17 @@ export const searchBooks = async (
   ];
 
   if (ebookBooks.length < lookupLimit) {
-    const more = await expandAuthorBooks(
-      ebooksClient,
-      ebookAuthorLookup || [],
-      lookupLimit
-    );
+    const more =
+      ebookAuthorLookup && ebookAuthorLookup.length
+        ? await expandAuthorBooks(ebooksClient, ebookAuthorLookup, lookupLimit)
+        : await lookupBooks(ebooksClient, `author:${term}`, lookupLimit);
     ebookBooks.push(...more);
   }
   if (audioBooks.length < lookupLimit) {
-    const more = await expandAuthorBooks(
-      audioClient,
-      audioAuthorLookup || [],
-      lookupLimit
-    );
+    const more =
+      audioAuthorLookup && audioAuthorLookup.length
+        ? await expandAuthorBooks(audioClient, audioAuthorLookup, lookupLimit)
+        : await lookupBooks(audioClient, `author:${term}`, lookupLimit);
     audioBooks.push(...more);
   }
 
@@ -582,15 +580,23 @@ export const requestBook = async (
     await client.post("/api/v1/book", payload);
   };
 
+  let resolvedLookup = lookup;
   try {
-    await addWithLookup(lookup);
+    resolvedLookup = await resolveLookupForAdd(instance, lookup);
+  } catch (error) {
+    logger.warn({ err: error }, "resolve_lookup_failed");
+  }
+
+  try {
+    await addWithLookup(resolvedLookup);
     return;
   } catch (error) {
     logger.warn({ err: error }, "book_add_failed");
   }
 
-  const resolvedLookup = await resolveLookupForAdd(instance, lookup);
-  await addWithLookup(resolvedLookup);
+  if (resolvedLookup !== lookup) {
+    await addWithLookup(lookup);
+  }
 };
 
 export const testConnection = async (
