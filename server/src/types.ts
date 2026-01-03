@@ -22,6 +22,9 @@ export type ReadarrBook = {
   isbn13?: string | number;
   isbn?: string | number;
   asin?: string;
+  author?: {
+    name?: string;
+  };
 };
 
 export type SearchItem = {

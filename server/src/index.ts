@@ -1,6 +1,5 @@
 import cors from "cors";
 import express from "express";
-import pinoHttp from "pino-http";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -14,7 +13,25 @@ const app = express();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const clientDist = path.resolve(__dirname, "../../client/dist");
 
-app.use(pinoHttp({ logger }));
+app.use((req, res, next) => {
+  const start = process.hrtime.bigint();
+
+  res.on("finish", () => {
+    const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+    logger.info(
+      {
+        method: req.method,
+        path: req.originalUrl,
+        status: res.statusCode,
+        durationMs,
+        ip: req.ip
+      },
+      "http_request"
+    );
+  });
+
+  next();
+});
 app.use(express.json({ limit: "1mb" }));
 
 const corsOrigins = (process.env.CORS_ORIGIN || "")
