@@ -4,6 +4,7 @@ node_modules
 .env
 .env.*
 !.env.example
+data/settings.json
 .DS_Store
 .vscode
 npm-debug.log*

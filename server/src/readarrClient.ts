@@ -1,8 +1,8 @@
 import axios, { AxiosInstance } from "axios";
 import type { ReadarrBook, ReadarrLookupBook, SearchItem } from "./types.js";
-import type { config } from "./config.js";
+import type { InstanceSettings } from "./settingsStore.js";
 
-export type InstanceConfig = typeof config.ebooks;
+export type InstanceConfig = InstanceSettings;
 
 type LookupResult = ReadarrLookupBook & {
   title?: string;
@@ -163,4 +163,11 @@ export const addBook = async (
   delete payload.id;
 
   await client.post("/api/v1/book", payload);
+};
+
+export const testConnection = async (
+  instance: InstanceConfig
+): Promise<void> => {
+  const client = createClient(instance);
+  await client.get("/api/v1/system/status");
 };

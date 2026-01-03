@@ -9,6 +9,14 @@ A lightweight request front-end for two Readarr instances (ebooks + audiobooks).
 
 ## Configuration
 
+You can either configure Readarr in the UI (recommended) or via environment variables.
+
+### Option A: Configure in the UI
+
+Start the app, open the UI, and fill in the settings form. The settings are stored in `data/settings.json` and persisted with the Docker volume `settings-data`.
+
+### Option B: Configure via .env
+
 Copy `.env.example` to `.env` and fill in your Readarr settings:
 
 ```
@@ -32,6 +40,8 @@ Optional frontend auth token for dev:
 VITE_AUTH=your_shared_password
 ```
 
+You can also enter the shared password in the UI (it is stored in browser local storage).
+
 Optional frontend API base override (useful for Docker dev):
 
 ```
@@ -42,6 +52,8 @@ If `AUTH` is set on the server, supply it as one of:
 - `Authorization: Bearer <AUTH>`
 - `Authorization: Basic <base64(username:AUTH)>`
 - `Authorization: <AUTH>` (raw token)
+
+Tip: set `AUTH` before exposing the app, since the settings UI includes your API keys.
 
 ## Local development
 
@@ -88,6 +100,9 @@ docker compose -f docker-compose.portainer.yml up -d
 ## API endpoints
 
 - `GET /api/health` — health check
+- `GET /api/settings` — get current settings
+- `POST /api/settings` — save settings
+- `POST /api/settings/test` — test connectivity
 - `GET /api/search?term=` — search Readarr metadata
 - `POST /api/request/ebook` — add to ebooks instance
 - `POST /api/request/audiobook` — add to audiobooks instance

@@ -7,7 +7,8 @@ import { fileURLToPath } from "url";
 import axios from "axios";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
-import { addBook, searchBooks } from "./readarrClient.js";
+import { addBook, searchBooks, testConnection } from "./readarrClient.js";
+import { SettingsError, getSettings, saveSettings } from "./settingsStore.js";
 
 const app = express();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -35,6 +36,10 @@ if (corsOrigins.length) {
 }
 
 app.use((req, res, next) => {
+  if (req.path === "/api/health") {
+    return next();
+  }
+
   if (!config.auth) {
     return next();
   }
@@ -63,14 +68,75 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
+app.get("/api/settings", (req, res) => {
+  const state = getSettings();
+  if (!state.configured || !state.settings) {
+    return res.json({ configured: false });
+  }
+  return res.json({ configured: true, settings: state.settings });
+});
+
+app.post("/api/settings", async (req, res, next) => {
+  const settings = req.body?.settings;
+  if (!settings) {
+    return res.status(400).json({ error: "Missing settings payload." });
+  }
+
+  try {
+    await saveSettings(settings);
+    return res.json({ status: "ok" });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.post("/api/settings/test", async (req, res, next) => {
+  const instance = req.body?.instance;
+  const settings = req.body?.settings;
+
+  if (!instance || (instance !== "ebooks" && instance !== "audio")) {
+    return res.status(400).json({ error: "Invalid instance." });
+  }
+
+  if (!settings?.baseUrl || !settings?.apiKey) {
+    return res.status(400).json({ error: "Missing base URL or API key." });
+  }
+
+  try {
+    await testConnection({
+      baseUrl: String(settings.baseUrl),
+      apiKey: String(settings.apiKey),
+      rootFolderPath: String(settings.rootFolderPath || "/books"),
+      qualityProfileId: Number(settings.qualityProfileId || 1)
+    });
+    return res.json({ status: "ok" });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+const requireSettings = (res: express.Response) => {
+  const state = getSettings();
+  if (!state.configured || !state.settings) {
+    res.status(412).json({ error: "Readarr settings not configured." });
+    return null;
+  }
+  return state.settings;
+};
+
 app.get("/api/search", async (req, res, next) => {
   const term = String(req.query.term || "").trim();
   if (!term) {
     return res.status(400).json({ error: "Missing search term." });
   }
 
+  const settings = requireSettings(res);
+  if (!settings) {
+    return undefined;
+  }
+
   try {
-    const items = await searchBooks(config.ebooks, config.audio, term);
+    const items = await searchBooks(settings.ebooks, settings.audio, term);
     return res.json({ items });
   } catch (error) {
     return next(error);
@@ -83,8 +149,13 @@ app.post("/api/request/ebook", async (req, res, next) => {
     return res.status(400).json({ error: "Missing book payload." });
   }
 
+  const settings = requireSettings(res);
+  if (!settings) {
+    return undefined;
+  }
+
   try {
-    await addBook(config.ebooks, book);
+    await addBook(settings.ebooks, book);
     return res.json({ status: "ok" });
   } catch (error) {
     return next(error);
@@ -97,8 +168,13 @@ app.post("/api/request/audiobook", async (req, res, next) => {
     return res.status(400).json({ error: "Missing book payload." });
   }
 
+  const settings = requireSettings(res);
+  if (!settings) {
+    return undefined;
+  }
+
   try {
-    await addBook(config.audio, book);
+    await addBook(settings.audio, book);
     return res.json({ status: "ok" });
   } catch (error) {
     return next(error);
@@ -125,7 +201,10 @@ app.use(
     let status = 500;
     let message = "Unexpected error.";
 
-    if (axios.isAxiosError(error)) {
+    if (error instanceof SettingsError) {
+      status = error.status;
+      message = error.message;
+    } else if (axios.isAxiosError(error)) {
       status = error.response?.status || 502;
       if (error.code === "ECONNREFUSED") {
         message = "Unable to reach Readarr. Check the base URL and network.";
