@@ -137,10 +137,16 @@ const lookupBooks = async (
   const maxPages = Math.max(1, Math.ceil(limit / 5));
 
   for (let page = 1; page <= maxPages; page += 1) {
-    const response = await client.get<LookupResult[]>("/api/v1/book/lookup", {
-      params: { term, limit, pageSize: limit, page }
-    });
-    const data = response.data || [];
+    let data: LookupResult[] = [];
+    try {
+      const response = await client.get<LookupResult[]>("/api/v1/book/lookup", {
+        params: { term, limit, pageSize: limit, page }
+      });
+      data = response.data || [];
+    } catch (error) {
+      logger.warn({ err: error, term, page }, "book_lookup_failed");
+      break;
+    }
     if (!data.length) {
       break;
     }
@@ -174,7 +180,7 @@ const lookupAuthors = async (
 ): Promise<AuthorLookup[]> => {
   try {
     const response = await client.get<AuthorLookup[]>("/api/v1/author/lookup", {
-      params: { term, limit, pageSize: limit }
+      params: { term, limit, pageSize: limit, includeBooks: true }
     });
     return response.data || [];
   } catch (error) {
@@ -220,13 +226,17 @@ const resolveLookupForAdd = async (
     .map((value) => String(value || "").trim())
     .filter(Boolean);
 
-  for (const candidate of candidates) {
-    const results = await lookupBooks(client, candidate, 10);
-    const match =
-      results.find((item) => pickKey(item) === pickKey(lookup)) || results[0];
-    if (match) {
-      return match;
+  try {
+    for (const candidate of candidates) {
+      const results = await lookupBooks(client, candidate, 10);
+      const match =
+        results.find((item) => pickKey(item) === pickKey(lookup)) || results[0];
+      if (match) {
+        return match;
+      }
     }
+  } catch (error) {
+    logger.warn({ err: error }, "resolve_lookup_failed");
   }
 
   return lookup;
@@ -429,6 +439,15 @@ export const searchBooks = async (
     ...(audioLookup || []),
     ...collectAuthorBooks(audioAuthorLookup || [])
   ];
+
+  if (ebookBooks.length < lookupLimit) {
+    const more = await lookupBooks(ebooksClient, `author:${term}`, lookupLimit);
+    ebookBooks.push(...more);
+  }
+  if (audioBooks.length < lookupLimit) {
+    const more = await lookupBooks(audioClient, `author:${term}`, lookupLimit);
+    audioBooks.push(...more);
+  }
 
   ingest(items, ebookBooks, ebookMap, "ebook");
   ingest(items, audioBooks, audioMap, "audio");
