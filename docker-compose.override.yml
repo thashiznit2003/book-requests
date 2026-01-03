@@ -1,0 +1,33 @@
+services:
+  app:
+    profiles:
+      - prod
+
+  server:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev --workspace server"
+    env_file: .env
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - /app/server/node_modules
+    ports:
+      - "3000:3000"
+
+  client:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev --workspace client -- --host"
+    environment:
+      VITE_API_BASE: http://localhost:3000
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - /app/client/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - server
